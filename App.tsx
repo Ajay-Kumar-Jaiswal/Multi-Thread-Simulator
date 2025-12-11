@@ -1,19 +1,28 @@
 import React, { useEffect, useReducer } from 'react';
-import { Play, Pause, FastForward, Plus, RefreshCw, Layers, Zap, Database, Network, HelpCircle, X, Trash2 } from 'lucide-react';
+import { Play, Pause, FastForward, Plus, RefreshCw, Layers, Zap, Database, Network, HelpCircle, X, Trash2, List, ChevronsUp, ChevronUp, ChevronDown } from 'lucide-react';
 import ThreadColumn from './components/ThreadColumn';
 import SharedResources from './components/SharedResources';
 import Terminal from './components/Terminal';
-import { Task, TaskType, ThreadState, SimulationState, LogEntry, Thread } from './types';
-import { MAX_THREADS, TASK_CONFIG, MAX_LOGS } from './constants';
+import { Task, TaskType, ThreadState, SimulationState, LogEntry, Thread, TaskPriority } from './types';
+import { MAX_THREADS, TASK_CONFIG, MAX_LOGS, PRIORITY_COLORS } from './constants';
 
 // --- Simulation Logic ---
 
-const generateTask = (forcedType?: TaskType): Task => {
+const generateTask = (forcedType?: TaskType, forcedPriority?: TaskPriority): Task => {
   const types = Object.values(TaskType);
   const type = forcedType || types[Math.floor(Math.random() * types.length)];
   const config = TASK_CONFIG[type];
   const duration = Math.floor(Math.random() * (config.durationMax - config.durationMin + 1)) + config.durationMin;
   
+  // Random Priority if not forced
+  let priority = forcedPriority;
+  if (!priority) {
+    const rand = Math.random();
+    if (rand > 0.8) priority = TaskPriority.HIGH;
+    else if (rand > 0.5) priority = TaskPriority.MEDIUM;
+    else priority = TaskPriority.LOW;
+  }
+
   // Critical sections usually happen in the middle of a task
   let critStart, critDur;
   if (config.requiresLock) {
@@ -24,6 +33,7 @@ const generateTask = (forcedType?: TaskType): Task => {
   return {
     id: `TASK-${Math.floor(Math.random() * 10000).toString().padStart(4, '0')}`,
     type,
+    priority,
     totalDuration: duration,
     remainingDuration: duration,
     criticalSectionStart: critStart,
@@ -56,7 +66,7 @@ type Action =
   | { type: 'SET_SPEED'; payload: number }
   | { type: 'ADD_THREAD' }
   | { type: 'REMOVE_THREAD' }
-  | { type: 'ADD_TASK'; payload?: TaskType }
+  | { type: 'ADD_TASK'; payload: { type?: TaskType; priority?: TaskPriority } }
   | { type: 'STRESS_TEST' }
   | { type: 'TOGGLE_LEGEND' }
   | { type: 'RESET' };
@@ -85,20 +95,24 @@ const simulationReducer = (state: SimulationState, action: Action): SimulationSt
       return { ...state, speedMs: action.payload };
 
     case 'ADD_TASK': {
-      const newTask = generateTask(action.payload);
+      const newTask = generateTask(action.payload.type, action.payload.priority);
+      // Sort queue by priority immediately upon insertion (Simplified Priority Queue)
+      const newQueue = [...state.taskQueue, newTask].sort((a, b) => b.priority - a.priority);
       return {
         ...state,
-        taskQueue: [...state.taskQueue, newTask],
-        logs: pushLog(state.logs, addLog(`Queueing ${newTask.type} (${newTask.id})`, 'info'))
+        taskQueue: newQueue,
+        logs: pushLog(state.logs, addLog(`Queueing ${newTask.type} [P${newTask.priority}]`, 'info'))
       };
     }
 
     case 'STRESS_TEST': {
-      const newTasks = Array.from({ length: 5 }, () => generateTask(TaskType.CRITICAL_DB));
+      // Inject High Priority Critical Tasks
+      const newTasks = Array.from({ length: 5 }, () => generateTask(TaskType.CRITICAL_DB, TaskPriority.HIGH));
+      const newQueue = [...state.taskQueue, ...newTasks].sort((a, b) => b.priority - a.priority);
       return {
         ...state,
-        taskQueue: [...state.taskQueue, ...newTasks],
-        logs: pushLog(state.logs, addLog(`⚠ INJECTING HIGH CONTENTION LOAD`, 'warning'))
+        taskQueue: newQueue,
+        logs: pushLog(state.logs, addLog(`⚠ INJECTING HIGH PRIORITY CONTENTION LOAD`, 'warning'))
       };
     }
 
@@ -164,12 +178,13 @@ const simulationReducer = (state: SimulationState, action: Action): SimulationSt
         // 1. If Idle, pick up task
         if (thread.state === ThreadState.IDLE || thread.state === ThreadState.FINISHED) {
            if (queue.length > 0) {
+              // Queue is already sorted by Priority due to insertion logic
               const task = queue.shift()!;
               thread.currentTask = task;
               thread.state = ThreadState.RUNNING;
               thread.blockedDuration = 0;
               thread.history.push(`Started ${task.id}`);
-              logs = pushLog(logs, addLog(`Picked up ${task.id}`, 'info', thread.id));
+              logs = pushLog(logs, addLog(`Picked up ${task.id} (P${task.priority})`, 'info', thread.id));
            } else {
              thread.state = ThreadState.IDLE;
            }
@@ -294,6 +309,25 @@ const LegendModal = ({ onClose }: { onClose: () => void }) => (
             <div className="text-xs text-slate-400">Thread holds the Lock and is modifying shared data.</div>
           </div>
         </div>
+
+        <div className="h-px bg-slate-800 my-2"></div>
+        <h4 className="text-sm font-bold text-slate-300">Priority Levels</h4>
+        
+        <div className="flex justify-between">
+           <div className="flex items-center gap-2">
+              <ChevronDown size={14} className="text-slate-400"/>
+              <span className="text-xs text-slate-400">Low</span>
+           </div>
+           <div className="flex items-center gap-2">
+              <ChevronUp size={14} className="text-blue-400"/>
+              <span className="text-xs text-blue-400">Medium</span>
+           </div>
+           <div className="flex items-center gap-2">
+              <ChevronsUp size={14} className="text-orange-400"/>
+              <span className="text-xs text-orange-400">High</span>
+           </div>
+        </div>
+
       </div>
       <div className="mt-6 text-xs text-slate-500 text-center">Click anywhere to close</div>
     </div>
@@ -329,7 +363,7 @@ const App: React.FC = () => {
         <div className="flex items-center gap-3">
           <Layers className="text-indigo-400" size={24} />
           <h1 className="text-lg font-bold tracking-tight text-white">
-            ThreadSim <span className="text-slate-500 font-normal">v1.0</span>
+            ThreadSim <span className="text-slate-500 font-normal">v1.1</span>
           </h1>
         </div>
         <div className="flex items-center gap-4">
@@ -387,59 +421,87 @@ const App: React.FC = () => {
             </div>
           </div>
 
+          {/* Ready Queue Display */}
+          <div className="flex-1 flex flex-col min-h-0 border-b border-slate-800">
+             <div className="px-4 py-2 border-b border-slate-800 bg-slate-900/50 flex items-center justify-between">
+                <div className="flex items-center gap-2 text-xs font-bold text-slate-400 uppercase tracking-wider">
+                  <List size={14} />
+                  Ready Queue ({state.taskQueue.length})
+                </div>
+                {state.taskQueue.length > 0 && (
+                   <span className="text-[10px] text-indigo-400 bg-indigo-500/10 px-1.5 rounded">Priority Sorted</span>
+                )}
+             </div>
+             
+             <div className="flex-1 overflow-y-auto p-2 space-y-2 bg-slate-950/30">
+                {state.taskQueue.length === 0 ? (
+                  <div className="h-full flex flex-col items-center justify-center text-slate-600 space-y-2">
+                    <List size={24} className="opacity-20" />
+                    <span className="text-xs">Queue Empty</span>
+                  </div>
+                ) : (
+                  state.taskQueue.map((task) => (
+                    <div key={task.id} className="bg-slate-800/50 border border-slate-700 rounded p-2 flex items-center justify-between group">
+                       <div className="flex items-center gap-2">
+                          <div className={`w-1.5 h-1.5 rounded-full ${task.type === TaskType.CRITICAL_DB ? 'bg-rose-500' : 'bg-blue-500'}`}></div>
+                          <div>
+                            <div className="text-xs font-mono text-slate-300">{task.id}</div>
+                            <div className="text-[10px] text-slate-500">{task.type}</div>
+                          </div>
+                       </div>
+                       <div className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${PRIORITY_COLORS[task.priority]}`}>
+                          {task.priority === TaskPriority.HIGH ? 'HI' : task.priority === TaskPriority.MEDIUM ? 'MED' : 'LO'}
+                       </div>
+                    </div>
+                  ))
+                )}
+             </div>
+          </div>
+
           {/* Task Injectors */}
-          <div className="p-4 space-y-3 flex-1 overflow-y-auto">
-            <div className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Task Injection</div>
+          <div className="p-4 space-y-3 shrink-0 bg-slate-900/20">
+            <div className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">New Task (Random Priority)</div>
             
-            <button 
-              onClick={() => dispatch({ type: 'ADD_TASK', payload: TaskType.COMPUTE })}
-              className="w-full flex items-center justify-between p-3 rounded-lg border border-blue-900/50 bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 transition-colors group"
-            >
-              <div className="flex items-center gap-2">
+            <div className="grid grid-cols-3 gap-2">
+              <button 
+                onClick={() => dispatch({ type: 'ADD_TASK', payload: { type: TaskType.COMPUTE } })}
+                className="flex flex-col items-center justify-center p-2 rounded border border-blue-900/50 bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 transition-colors"
+                title="Add CPU Task"
+              >
                 <Zap size={16} />
-                <span className="font-medium">CPU Task</span>
-              </div>
-              <Plus size={16} className="opacity-0 group-hover:opacity-100 transition-opacity"/>
-            </button>
+                <span className="text-[10px] font-bold mt-1">CPU</span>
+              </button>
 
-            <button 
-              onClick={() => dispatch({ type: 'ADD_TASK', payload: TaskType.IO_BOUND })}
-              className="w-full flex items-center justify-between p-3 rounded-lg border border-violet-900/50 bg-violet-500/10 hover:bg-violet-500/20 text-violet-400 transition-colors group"
-            >
-              <div className="flex items-center gap-2">
+              <button 
+                onClick={() => dispatch({ type: 'ADD_TASK', payload: { type: TaskType.IO_BOUND } })}
+                className="flex flex-col items-center justify-center p-2 rounded border border-violet-900/50 bg-violet-500/10 hover:bg-violet-500/20 text-violet-400 transition-colors"
+                title="Add I/O Task"
+              >
                 <Network size={16} />
-                <span className="font-medium">I/O Task</span>
-              </div>
-              <Plus size={16} className="opacity-0 group-hover:opacity-100 transition-opacity"/>
-            </button>
+                <span className="text-[10px] font-bold mt-1">I/O</span>
+              </button>
 
-            <button 
-              onClick={() => dispatch({ type: 'ADD_TASK', payload: TaskType.CRITICAL_DB })}
-              className="w-full flex items-center justify-between p-3 rounded-lg border border-rose-900/50 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 transition-colors group"
-            >
-              <div className="flex items-center gap-2">
+              <button 
+                onClick={() => dispatch({ type: 'ADD_TASK', payload: { type: TaskType.CRITICAL_DB } })}
+                className="flex flex-col items-center justify-center p-2 rounded border border-rose-900/50 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 transition-colors"
+                title="Add Critical Section Task"
+              >
                 <Database size={16} />
-                <span className="font-medium">Critical Section</span>
-              </div>
-              <Plus size={16} className="opacity-0 group-hover:opacity-100 transition-opacity"/>
-            </button>
-
-            <div className="h-px bg-slate-800 my-2"></div>
+                <span className="text-[10px] font-bold mt-1">DB</span>
+              </button>
+            </div>
 
             <button 
               onClick={() => dispatch({ type: 'STRESS_TEST' })}
-              className="w-full p-3 rounded-lg bg-red-500 hover:bg-red-600 text-white font-bold text-center transition-colors shadow-lg shadow-red-900/20 flex items-center justify-center gap-2"
+              className="w-full p-2 mt-2 rounded bg-red-500 hover:bg-red-600 text-white font-bold text-xs text-center transition-colors shadow-lg shadow-red-900/20 flex items-center justify-center gap-2"
             >
-              <FastForward size={16} fill="currentColor" /> STRESS TEST
+              <FastForward size={14} fill="currentColor" /> STRESS TEST (Hi-Pri)
             </button>
-            <p className="text-[10px] text-slate-500 text-center leading-tight">
-              Injects 5 critical tasks instantly to force mutex contention.
-            </p>
           </div>
 
           {/* Thread Manager */}
-          <div className="p-4 border-t border-slate-800 bg-slate-900/50">
-             <div className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">Thread Pool</div>
+          <div className="p-4 border-t border-slate-800 bg-slate-900/50 shrink-0">
+             <div className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Thread Pool</div>
              <div className="flex gap-2">
                <button 
                  onClick={() => dispatch({ type: 'ADD_THREAD' })}
