@@ -1,7 +1,7 @@
 import React from 'react';
-import { Thread, ThreadState, TaskType } from '../types';
-import { COLORS } from '../constants';
-import { Cpu, Lock, AlertCircle, CheckCircle2, Clock, Timer } from 'lucide-react';
+import { Thread, ThreadState, TaskType, TaskPriority } from '../types';
+import { COLORS, PRIORITY_COLORS } from '../constants';
+import { Cpu, Lock, AlertCircle, CheckCircle2, Clock, Timer, ChevronsUp, ChevronUp, ChevronDown } from 'lucide-react';
 
 interface ThreadColumnProps {
   thread: Thread;
@@ -34,6 +34,14 @@ const ThreadColumn: React.FC<ThreadColumnProps> = ({ thread }) => {
   const progress = thread.currentTask
     ? ((thread.currentTask.totalDuration - thread.currentTask.remainingDuration) / thread.currentTask.totalDuration) * 100
     : 0;
+  
+  const getPriorityIcon = (p: TaskPriority) => {
+    switch(p) {
+      case TaskPriority.HIGH: return <ChevronsUp size={12}/>;
+      case TaskPriority.MEDIUM: return <ChevronUp size={12}/>;
+      default: return <ChevronDown size={12}/>;
+    }
+  }
 
   return (
     <div className={`relative flex flex-col h-full border-r border-slate-800 p-4 transition-colors duration-300 ${thread.state === ThreadState.CRITICAL ? 'bg-rose-950/10' : ''}`}>
@@ -75,9 +83,10 @@ const ThreadColumn: React.FC<ThreadColumnProps> = ({ thread }) => {
 
              <div className="flex justify-between items-start mb-2 relative z-10">
                 <span className="text-xs font-mono text-slate-400">{thread.currentTask.id}</span>
-                <span className="text-xs font-mono text-white bg-slate-900 px-1 rounded">
-                   {thread.currentTask.type === TaskType.CRITICAL_DB ? 'MUTEX REQ' : 'ASYNC'}
-                </span>
+                <div className={`flex items-center gap-1 text-[10px] font-bold px-1.5 rounded border ${PRIORITY_COLORS[thread.currentTask.priority]}`}>
+                   {getPriorityIcon(thread.currentTask.priority)}
+                   {thread.currentTask.priority === TaskPriority.HIGH ? 'HI' : thread.currentTask.priority === TaskPriority.MEDIUM ? 'MED' : 'LO'}
+                </div>
              </div>
              
              <div className="relative z-10">
@@ -85,8 +94,13 @@ const ThreadColumn: React.FC<ThreadColumnProps> = ({ thread }) => {
                  {thread.currentTask.type === TaskType.CRITICAL_DB ? 'Writing Database' : 
                   thread.currentTask.type === TaskType.IO_BOUND ? 'Network Request' : 'Calculating Primes'}
                </div>
-               <div className="text-xs text-slate-500 font-mono">
-                 {thread.currentTask.remainingDuration} ticks remaining
+               <div className="flex items-center gap-2">
+                 <span className="text-xs text-slate-500 font-mono">
+                   {thread.currentTask.remainingDuration} ticks remaining
+                 </span>
+                 <span className="text-[10px] text-slate-600 font-mono bg-slate-900 px-1 rounded">
+                   {thread.currentTask.type === TaskType.CRITICAL_DB ? 'MUTEX' : 'ASYNC'}
+                 </span>
                </div>
              </div>
 
