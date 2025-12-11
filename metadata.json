@@ -1,0 +1,5 @@
+{
+  "name": "ThreadSim: Multi-Threaded Visualizer",
+  "description": "A real-time educational simulator visualizing multi-threaded concurrency, race conditions, mutex locking, and task scheduling.",
+  "requestFramePermissions": []
+}
