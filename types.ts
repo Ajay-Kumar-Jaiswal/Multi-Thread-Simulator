@@ -12,9 +12,16 @@ export enum TaskType {
   CRITICAL_DB = 'CRITICAL_DB' // Requires Mutex
 }
 
+export enum TaskPriority {
+  LOW = 1,
+  MEDIUM = 2,
+  HIGH = 3
+}
+
 export interface Task {
   id: string;
   type: TaskType;
+  priority: TaskPriority;
   totalDuration: number;
   remainingDuration: number;
   criticalSectionStart?: number; // At what progress tick does it need the lock?
