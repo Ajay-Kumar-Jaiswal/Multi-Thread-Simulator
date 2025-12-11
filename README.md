@@ -54,4 +54,13 @@ Built using **React**, **Vite**, and **TailwindCSS**, this project visually demo
 ```sh
 git clone https://github.com/Ajay-Kumar-Jaiswal/Multi-Thread-Simulator
 cd Multi-Thread-Simulator
+```
+### 2. Install dependencies
+```sh
+npm install
+
+```
+### 3.Running the project locally (Live in browser)
+```sh
+npm run dev
 
